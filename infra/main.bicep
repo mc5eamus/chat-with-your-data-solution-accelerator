@@ -254,6 +254,17 @@ param logLevel string = 'INFO'
 @description('List of comma-separated languages to recognize from the speech input. Supported languages are listed here: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=stt#supported-languages')
 param recognizedLanguages string = 'en-US,fr-FR,de-DE,it-IT'
 
+@description('Set to true if you want to isolate the dependencies in a private network')
+param usePrivateNetwork bool = false
+@description('Existing resource group name for the virtual network')
+param vnetRgName string = ''
+@description('Existing virtual network name')
+param vnetName string = ''
+@description('Existing subnet name for the private endpoint')
+param vnetPrivateEndpointSubnet string = ''
+@description('Existing subnet name for the app service. Has to be delegated to Microsoft.Web/serverFarms')
+param vnetAppServiceSubnet string = ''
+
 var blobContainerName = 'documents'
 var queueName = 'doc-processing'
 var clientKey = '${uniqueString(guid(subscription().id, deployment().name))}${newGuidString}'
@@ -261,6 +272,22 @@ var eventGridSystemTopicName = 'doc-processing'
 var tags = { 'azd-env-name': environmentName }
 var rgName = 'rg-${environmentName}'
 var keyVaultName = 'kv-${resourceToken}'
+
+
+resource vnet 'Microsoft.Network/virtualNetworks@2020-11-01' existing = if(usePrivateNetwork) {
+  name: vnetName
+  scope: resourceGroup(vnetRgName)
+}
+
+resource privateEndpointSubnet 'Microsoft.Network/virtualNetworks/subnets@2020-11-01' existing = if(usePrivateNetwork) {
+ name: vnetPrivateEndpointSubnet
+ parent: vnet
+}
+
+resource appServiceSubnet 'Microsoft.Network/virtualNetworks/subnets@2020-11-01' existing = if(usePrivateNetwork) {
+ name: vnetAppServiceSubnet
+ parent: vnet
+}
 
 // Organize resources in a resource group
 resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -278,8 +305,27 @@ module keyvault './core/security/keyvault.bicep' = if (useKeyVault || authType =
     location: location
     tags: tags
     principalId: principalId
+    publicNetworkAccess: usePrivateNetwork ? 'Disabled' : 'Enabled'
   }
 }
+
+// TODO: rename to privateDnsZonesKv
+module privateDnsZones 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork && (useKeyVault || authType == 'rbac')) {
+  name: 'privatelink.vaultcore.azure.net'
+  scope: rg
+  params: {
+    privateDnsZoneLinkName: 'vnetlink-kv'
+    privateDnsZoneName: 'privatelink.vaultcore.azure.net'
+    vnetId: vnet.id
+    groupIds: [ 'vault' ]
+    resourceIds: [keyvault.outputs.id]
+    resourceNames: [keyVaultName]
+    subnetId: privateEndpointSubnet.id
+    location: location
+    tags: tags
+  }
+}
+
 
 var defaultOpenAiDeployments = [
   {
@@ -332,20 +378,7 @@ module openai 'core/ai/cognitiveservices.bicep' = {
     }
     managedIdentity: authType == 'rbac'
     deployments: openAiDeployments
-  }
-}
-
-module computerVision 'core/ai/cognitiveservices.bicep' = if (useGPT4Vision) {
-  name: 'computerVision'
-  scope: rg
-  params: {
-    name: computerVisionName
-    kind: 'ComputerVision'
-    location: computerVisionLocation
-    tags: tags
-    sku: {
-      name: computerVisionSkuName
-    }
+    publicNetworkAccess: usePrivateNetwork ? 'Disabled' : 'Enabled'
   }
 }
 
@@ -371,6 +404,21 @@ module searchServiceRoleOpenai 'core/security/role.bicep' = if (authType == 'rba
   }
 }
 
+module computerVision 'core/ai/cognitiveservices.bicep' = if (useGPT4Vision) {
+  name: 'computerVision'
+  scope: rg
+  params: {
+    name: computerVisionName
+    kind: 'ComputerVision'
+    location: computerVisionLocation
+    tags: tags
+    sku: {
+      name: computerVisionSkuName
+    }
+    publicNetworkAccess: usePrivateNetwork ? 'Disabled' : 'Enabled'
+  }
+}
+
 module speechService 'core/ai/cognitiveservices.bicep' = {
   scope: rg
   name: speechServiceName
@@ -381,21 +429,82 @@ module speechService 'core/ai/cognitiveservices.bicep' = {
       name: 'S0'
     }
     kind: 'SpeechServices'
+    publicNetworkAccess: usePrivateNetwork ? 'Disabled' : 'Enabled'
   }
 }
 
-module storekeys './app/storekeys.bicep' = if (useKeyVault) {
-  name: 'storekeys'
+module formrecognizer 'core/ai/cognitiveservices.bicep' = {
+  name: formRecognizerName
   scope: rg
   params: {
-    keyVaultName: keyVaultName
-    azureOpenAIName: openai.outputs.name
-    azureAISearchName: search.outputs.name
-    storageAccountName: storage.outputs.name
-    formRecognizerName: formrecognizer.outputs.name
-    contentSafetyName: contentsafety.outputs.name
-    speechServiceName: speechServiceName
-    rgName: rgName
+    name: formRecognizerName
+    location: location
+    tags: tags
+    kind: 'FormRecognizer'
+    publicNetworkAccess: usePrivateNetwork ? 'Disabled' : 'Enabled'
+  }
+}
+
+module contentsafety 'core/ai/cognitiveservices.bicep' = {
+  name: contentSafetyName
+  scope: rg
+  params: {
+    name: contentSafetyName
+    location: location
+    tags: tags
+    kind: 'ContentSafety'
+    publicNetworkAccess: usePrivateNetwork ? 'Disabled' : 'Enabled'
+  }
+}
+
+module eventgrid 'app/eventgrid.bicep' = {
+  name: eventGridSystemTopicName
+  scope: rg
+  params: {
+    name: eventGridSystemTopicName
+    location: location
+    storageAccountId: storage.outputs.id
+    queueName: queueName
+    blobContainerName: blobContainerName
+  }
+}
+
+module privateDnsZonesOpenAI 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork) {
+  name: 'privatelink.openai.azure.com'
+  scope: rg
+  params: {
+    privateDnsZoneLinkName: 'vnetlink-openai'
+    privateDnsZoneName: 'privatelink.openai.azure.com'
+    vnetId: vnet.id
+    groupIds: [ 'account' ]
+    resourceIds: [openai.outputs.id]
+    resourceNames: [azureOpenAIResourceName]
+    subnetId: privateEndpointSubnet.id
+    location: location
+    tags: tags
+  }
+}
+
+var cogServicesIds = concat(
+  [speechService.outputs.id, formrecognizer.outputs.id, contentsafety.outputs.id],
+  useGPT4Vision ? [computerVision.outputs.id] : [])
+var cogServicesNames = concat(
+  [speechServiceName, formRecognizerName, contentSafetyName],
+  useGPT4Vision ? [computerVisionName] : [])
+
+module privateDnsZonesCogSvc 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork) {
+  name: 'privatelink.cognitiveservices.azure.com'
+  scope: rg
+  params: {
+    privateDnsZoneLinkName: 'vnetlink-cognitive'
+    privateDnsZoneName: 'privatelink.cognitiveservices.azure.com'
+    vnetId: vnet.id
+    groupIds: [ 'account' ]
+    resourceIds: cogServicesIds
+    resourceNames: cogServicesNames
+    subnetId: privateEndpointSubnet.id
+    location: location
+    tags: tags
   }
 }
 
@@ -416,6 +525,102 @@ module search './core/search/search-services.bicep' = {
         aadAuthFailureMode: 'http403'
       }
     }
+    publicNetworkAccess: usePrivateNetwork ? 'disabled' : 'enabled'
+  }
+}
+
+module privateDnsZonesSearch 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork) {
+  name: 'privatelink.search.windows.net'
+  scope: rg
+  params: {
+    privateDnsZoneLinkName: 'vnetlink-search'
+    privateDnsZoneName: 'privatelink.search.windows.net'
+    vnetId: vnet.id
+    groupIds: [ 'searchService' ]
+    resourceIds: [search.outputs.id]
+    resourceNames: [azureAISearchName]
+    subnetId: privateEndpointSubnet.id
+    location: location
+    tags: tags
+  }
+}
+
+module storage 'core/storage/storage-account.bicep' = {
+  name: storageAccountName
+  scope: rg
+  params: {
+    name: storageAccountName
+    location: location
+    sku: {
+      name: 'Standard_GRS'
+    }
+    containers: [
+      {
+        name: blobContainerName
+        publicAccess: 'None'
+      }
+      {
+        name: 'config'
+        publicAccess: 'None'
+      }
+    ]
+    queues: [
+      {
+        name: 'doc-processing'
+      }
+      {
+        name: 'doc-processing-poison'
+      }
+    ]
+  }
+}
+
+
+module privateDnsZonesStorageBlob 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork) {
+  name: 'privatelink.blob.core.windows.net'
+  scope: rg
+  params: {
+    privateDnsZoneLinkName: 'vnetlink-blob'
+    privateDnsZoneName: 'privatelink.blob.core.windows.net'
+    vnetId: vnet.id
+    groupIds: [ 'blob' ]
+    resourceIds: [storage.outputs.id]
+    resourceNames: ['${storageAccountName}-blob']
+    subnetId: privateEndpointSubnet.id
+    location: location
+    tags: tags
+  }
+}
+
+
+module privateDnsZonesStorageQueue 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork) {
+  name: 'privatelink.queue.core.windows.net'
+  scope: rg
+  params: {
+    privateDnsZoneLinkName: 'vnetlink-queue'
+    privateDnsZoneName: 'privatelink.queue.core.windows.net'
+    vnetId: vnet.id
+    groupIds: [ 'queue' ]
+    resourceIds: [storage.outputs.id]
+    resourceNames: ['${storageAccountName}-queue']
+    subnetId: privateEndpointSubnet.id
+    location: location
+    tags: tags
+  }
+}
+
+module storekeys './app/storekeys.bicep' = if (useKeyVault) {
+  name: 'storekeys'
+  scope: rg
+  params: {
+    keyVaultName: keyVaultName
+    azureOpenAIName: openai.outputs.name
+    azureAISearchName: search.outputs.name
+    storageAccountName: storage.outputs.name
+    formRecognizerName: formrecognizer.outputs.name
+    contentSafetyName: contentsafety.outputs.name
+    speechServiceName: speechServiceName
+    rgName: rgName
   }
 }
 
@@ -433,6 +638,7 @@ module hostingplan './core/host/appserviceplan.bicep' = {
     tags: { Automation: 'Ignore' }
   }
 }
+
 
 module web './app/web.bicep' = if (hostingModel == 'code') {
   name: websiteName
@@ -461,6 +667,7 @@ module web './app/web.bicep' = if (hostingModel == 'code') {
     useKeyVault: useKeyVault
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
+    virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -499,6 +706,7 @@ module web './app/web.bicep' = if (hostingModel == 'code') {
   }
 }
 
+
 module web_docker './app/web.bicep' = if (hostingModel == 'container') {
   name: '${websiteName}-docker'
   scope: rg
@@ -525,6 +733,7 @@ module web_docker './app/web.bicep' = if (hostingModel == 'container') {
     useKeyVault: useKeyVault
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
+    virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -589,6 +798,7 @@ module adminweb './app/adminweb.bicep' = if (hostingModel == 'code') {
     useKeyVault: useKeyVault
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
+    virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -651,6 +861,7 @@ module adminweb_docker './app/adminweb.bicep' = if (hostingModel == 'container')
     useKeyVault: useKeyVault
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
+    virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -688,38 +899,6 @@ module adminweb_docker './app/adminweb.bicep' = if (hostingModel == 'container')
   }
 }
 
-module monitoring './core/monitor/monitoring.bicep' = {
-  name: 'monitoring'
-  scope: rg
-  params: {
-    applicationInsightsName: applicationInsightsName
-    location: location
-    tags: {
-      'hidden-link:${resourceId('Microsoft.Web/sites', applicationInsightsName)}': 'Resource'
-    }
-    logAnalyticsName: logAnalyticsName
-    applicationInsightsDashboardName: 'dash-${applicationInsightsName}'
-  }
-}
-
-module workbook './app/workbook.bicep' = {
-  name: 'workbook'
-  scope: rg
-  params: {
-    workbookDisplayName: workbookDisplayName
-    location: location
-    hostingPlanName: hostingplan.outputs.name
-    functionName: hostingModel == 'container' ? function_docker.outputs.functionName : function.outputs.functionName
-    websiteName: hostingModel == 'container' ? web_docker.outputs.FRONTEND_API_NAME : web.outputs.FRONTEND_API_NAME
-    adminWebsiteName: hostingModel == 'container' ? adminweb_docker.outputs.WEBSITE_ADMIN_NAME : adminweb.outputs.WEBSITE_ADMIN_NAME
-    eventGridSystemTopicName: eventgrid.outputs.name
-    logAnalyticsName: monitoring.outputs.logAnalyticsWorkspaceName
-    azureOpenAIResourceName: openai.outputs.name
-    azureAISearchName: search.outputs.name
-    storageAccountName: storage.outputs.name
-  }
-}
-
 module function './app/function.bicep' = if (hostingModel == 'code') {
   name: functionName
   scope: rg
@@ -747,6 +926,7 @@ module function './app/function.bicep' = if (hostingModel == 'code') {
     useKeyVault: useKeyVault
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
+    virtualNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -791,6 +971,7 @@ module function_docker './app/function.bicep' = if (hostingModel == 'container')
     useKeyVault: useKeyVault
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
+    virtualNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -809,67 +990,18 @@ module function_docker './app/function.bicep' = if (hostingModel == 'container')
   }
 }
 
-module formrecognizer 'core/ai/cognitiveservices.bicep' = {
-  name: formRecognizerName
-  scope: rg
-  params: {
-    name: formRecognizerName
-    location: location
-    tags: tags
-    kind: 'FormRecognizer'
-  }
-}
 
-module contentsafety 'core/ai/cognitiveservices.bicep' = {
-  name: contentSafetyName
+module monitoring './core/monitor/monitoring.bicep' = {
+  name: 'monitoring'
   scope: rg
   params: {
-    name: contentSafetyName
+    applicationInsightsName: applicationInsightsName
     location: location
-    tags: tags
-    kind: 'ContentSafety'
-  }
-}
-
-module eventgrid 'app/eventgrid.bicep' = {
-  name: eventGridSystemTopicName
-  scope: rg
-  params: {
-    name: eventGridSystemTopicName
-    location: location
-    storageAccountId: storage.outputs.id
-    queueName: queueName
-    blobContainerName: blobContainerName
-  }
-}
-
-module storage 'core/storage/storage-account.bicep' = {
-  name: storageAccountName
-  scope: rg
-  params: {
-    name: storageAccountName
-    location: location
-    sku: {
-      name: 'Standard_GRS'
+    tags: {
+      'hidden-link:${resourceId('Microsoft.Web/sites', applicationInsightsName)}': 'Resource'
     }
-    containers: [
-      {
-        name: blobContainerName
-        publicAccess: 'None'
-      }
-      {
-        name: 'config'
-        publicAccess: 'None'
-      }
-    ]
-    queues: [
-      {
-        name: 'doc-processing'
-      }
-      {
-        name: 'doc-processing-poison'
-      }
-    ]
+    logAnalyticsName: logAnalyticsName
+    applicationInsightsDashboardName: 'dash-${applicationInsightsName}'
   }
 }
 
@@ -917,6 +1049,7 @@ module searchRoleUser 'core/security/role.bicep' = if (authType == 'rbac') {
     principalType: 'User'
   }
 }
+
 
 // TODO: Streamline to one key=value pair
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = monitoring.outputs.applicationInsightsConnectionString

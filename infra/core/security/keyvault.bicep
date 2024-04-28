@@ -4,6 +4,7 @@ param location string = resourceGroup().location
 param tags object = {}
 
 param principalId string = ''
+param publicNetworkAccess string = 'Enabled'
 
 resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
   name: name
@@ -19,8 +20,10 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
         tenantId: subscription().tenantId
       }
     ] : []
+    publicNetworkAccess: publicNetworkAccess
   }
 }
 
+output id string = keyVault.id
 output endpoint string = keyVault.properties.vaultUri
 output name string = keyVault.name

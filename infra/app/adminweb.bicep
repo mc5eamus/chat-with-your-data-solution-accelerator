@@ -26,6 +26,7 @@ param speechKeyName string = ''
 param authType string
 param dockerFullImageName string = ''
 param useDocker bool = dockerFullImageName != ''
+param virutalNetworkSubnetId string = ''
 
 module adminweb '../core/host/appservice.bicep' = {
   name: '${name}-app-module'
@@ -38,10 +39,11 @@ module adminweb '../core/host/appservice.bicep' = {
     runtimeName: runtimeName
     runtimeVersion: runtimeVersion
     keyVaultName: keyVaultName
-    dockerFullImageName: dockerFullImageName 
+    dockerFullImageName: dockerFullImageName
     scmDoBuildDuringDeployment: useDocker ? false : true
     applicationInsightsName: applicationInsightsName
     appServicePlanId: appServicePlanId
+    virtualNetworkSubnetId: !empty(virutalNetworkSubnetId) ? virutalNetworkSubnetId : null
     appSettings: union(appSettings, {
         AZURE_AUTH_TYPE: authType
         USE_KEY_VAULT: useKeyVault ? useKeyVault : ''

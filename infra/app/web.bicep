@@ -27,6 +27,7 @@ param authType string
 param dockerFullImageName string = ''
 param useDocker bool = dockerFullImageName != ''
 param healthCheckPath string = ''
+param virutalNetworkSubnetId string = ''
 
 module web '../core/host/appservice.bicep' = {
   name: '${name}-app-module'
@@ -54,6 +55,7 @@ module web '../core/host/appservice.bicep' = {
     dockerFullImageName: dockerFullImageName
     scmDoBuildDuringDeployment: useDocker ? false : true
     healthCheckPath: healthCheckPath
+    virtualNetworkSubnetId: !empty(virutalNetworkSubnetId) ? virutalNetworkSubnetId : null
   }
 }
 

@@ -39,6 +39,9 @@ param use32BitWorkerProcess bool = false
 param ftpsState string = 'FtpsOnly'
 param healthCheckPath string = ''
 
+param virtualNetworkSubnetId string = ''
+param publicNetworkAccess string = 'Enabled'
+
 resource appService 'Microsoft.Web/sites@2022-03-01' = {
   name: name
   location: location
@@ -63,6 +66,8 @@ resource appService 'Microsoft.Web/sites@2022-03-01' = {
     }
     clientAffinityEnabled: clientAffinityEnabled
     httpsOnly: true
+    virtualNetworkSubnetId: !empty(virtualNetworkSubnetId) ? virtualNetworkSubnetId : null
+    publicNetworkAccess: publicNetworkAccess
   }
 
   identity: { type: managedIdentity ? 'SystemAssigned' : 'None' }

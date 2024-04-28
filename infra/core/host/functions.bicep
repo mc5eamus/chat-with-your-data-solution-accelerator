@@ -42,6 +42,9 @@ param healthCheckPath string = ''
 param dockerFullImageName string = ''
 param useDocker bool = dockerFullImageName != ''
 param enableOryxBuild bool = useDocker ? false : contains(kind, 'linux')
+param virtualNetworkSubnetId string = ''
+param publicNetworkAccess string = 'Enabled'
+
 
 module functions 'appservice.bicep' = {
   name: '${name}-functions'
@@ -76,6 +79,8 @@ module functions 'appservice.bicep' = {
     scmDoBuildDuringDeployment: useDocker ? false : true
     use32BitWorkerProcess: use32BitWorkerProcess
     dockerFullImageName: dockerFullImageName
+    virtualNetworkSubnetId: !empty(virtualNetworkSubnetId) ? virtualNetworkSubnetId : null
+    publicNetworkAccess: publicNetworkAccess
   }
 }
 
