@@ -5,10 +5,10 @@ targetScope = 'subscription'
 @description('Name of the the environment which is used to generate a short unique hash used in all resources.')
 param environmentName string
 
-param resourceToken string = toLower(uniqueString(subscription().id, environmentName, location))
-
 @description('Location for all resources.')
 param location string
+
+param resourceToken string = toLower(uniqueString(subscription().id, environmentName, location))
 
 @description('Name of App Service plan')
 param hostingPlanName string = 'hosting-plan-${resourceToken}'
@@ -28,7 +28,7 @@ param hostingPlanName string = 'hosting-plan-${resourceToken}'
   'P3'
   'P4'
 ])
-param hostingPlanSku string = 'B3'
+param hostingPlanSku string = 'B2'
 
 @description('The sku tier for the App Service plan')
 @allowed([
@@ -193,7 +193,7 @@ param azureAISearchName string = 'search-${resourceToken}'
   'standard2'
   'standard3'
 ])
-param azureSearchSku string = 'standard'
+param azureSearchSku string = 'basic'
 
 @description('Azure AI Search Index')
 param azureSearchIndex string = 'index-${resourceToken}'
@@ -255,15 +255,19 @@ param logLevel string = 'INFO'
 param recognizedLanguages string = 'en-US,fr-FR,de-DE,it-IT'
 
 @description('Set to true if you want to isolate the dependencies in a private network')
-param usePrivateNetwork bool = false
+param usePrivateNetwork bool = true
 @description('Existing resource group name for the virtual network')
-param vnetRgName string = ''
+param vnetRgName string
 @description('Existing virtual network name')
-param vnetName string = ''
+param vnetName string
 @description('Existing subnet name for the private endpoint')
-param vnetPrivateEndpointSubnet string = ''
+param vnetPrivateEndpointSubnet string
 @description('Existing subnet name for the app service. Has to be delegated to Microsoft.Web/serverFarms')
-param vnetAppServiceSubnet string = ''
+param vnetAppServiceSubnet string
+@description('Whether to allow public access to the frontend')
+param allowPublicAccessToFrontend bool = true
+@description('Whether to allow public access to the admin frontend')
+param allowPublicAccessToAdmin bool = true
 
 var blobContainerName = 'documents'
 var queueName = 'doc-processing'
@@ -309,8 +313,7 @@ module keyvault './core/security/keyvault.bicep' = if (useKeyVault || authType =
   }
 }
 
-// TODO: rename to privateDnsZonesKv
-module privateDnsZones 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork && (useKeyVault || authType == 'rbac')) {
+module privateDnsZonesKv 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork && (useKeyVault || authType == 'rbac')) {
   name: 'privatelink.vaultcore.azure.net'
   scope: rg
   params: {
@@ -325,7 +328,6 @@ module privateDnsZones 'core/networking/private-dns-zone.bicep' = if (usePrivate
     tags: tags
   }
 }
-
 
 var defaultOpenAiDeployments = [
   {
@@ -442,6 +444,7 @@ module formrecognizer 'core/ai/cognitiveservices.bicep' = {
     tags: tags
     kind: 'FormRecognizer'
     publicNetworkAccess: usePrivateNetwork ? 'Disabled' : 'Enabled'
+    managedIdentity: usePrivateNetwork
   }
 }
 
@@ -572,6 +575,22 @@ module storage 'core/storage/storage-account.bicep' = {
         name: 'doc-processing-poison'
       }
     ]
+    publicNetworkAccess: 'Enabled'
+    networkAcls: usePrivateNetwork ?  {
+      resourceAccessRules: [
+          {
+              tenantId: subscription().tenantId
+              resourceId: formrecognizer.outputs.id
+          }
+      ]
+      bypass: 'AzureServices'
+      virtualNetworkRules: []
+      ipRules: []
+      defaultAction: 'Deny'
+    } : {
+      bypass: 'AzureServices'
+      defaultAction: 'Allow'
+    }
   }
 }
 
@@ -668,6 +687,7 @@ module web './app/web.bicep' = if (hostingModel == 'code') {
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
+    allowPublicAccess: allowPublicAccessToFrontend
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -734,6 +754,7 @@ module web_docker './app/web.bicep' = if (hostingModel == 'container') {
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
+    allowPublicAccess: allowPublicAccessToFrontend
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -799,6 +820,7 @@ module adminweb './app/adminweb.bicep' = if (hostingModel == 'code') {
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
+    allowPublicAccess: allowPublicAccessToAdmin
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -862,6 +884,7 @@ module adminweb_docker './app/adminweb.bicep' = if (hostingModel == 'container')
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
+    allowPublicAccess: allowPublicAccessToAdmin
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -927,6 +950,7 @@ module function './app/function.bicep' = if (hostingModel == 'code') {
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
     virtualNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
+    allowPublicAccess: !usePrivateNetwork
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -972,6 +996,7 @@ module function_docker './app/function.bicep' = if (hostingModel == 'container')
     keyVaultName: useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
     authType: authType
     virtualNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
+    allowPublicAccess: !usePrivateNetwork
     appSettings: {
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
@@ -991,6 +1016,22 @@ module function_docker './app/function.bicep' = if (hostingModel == 'container')
 }
 
 
+module privateDnsZonesFunctionCode 'core/networking/private-dns-zone.bicep' = if (usePrivateNetwork) {
+  name: 'privatelink.azurewebsites.net'
+  scope: rg
+  params: {
+    privateDnsZoneLinkName: 'vnetlink-function'
+    privateDnsZoneName: 'privatelink.azurewebsites.net'
+    vnetId: vnet.id
+    groupIds: [ 'sites' ]
+    resourceIds: [(hostingModel == 'code') ? function.outputs.id : function_docker.outputs.id]
+    resourceNames: [(hostingModel == 'code') ? function.name : function_docker.name]
+    subnetId: privateEndpointSubnet.id
+    location: location
+    tags: tags
+  }
+}
+
 module monitoring './core/monitor/monitoring.bicep' = {
   name: 'monitoring'
   scope: rg
@@ -1006,6 +1047,18 @@ module monitoring './core/monitor/monitoring.bicep' = {
 }
 
 // USER ROLES
+// Storage Blob Data Reader for Document Intelligence
+module storageReaderRoleUser 'core/security/role.bicep' = if(usePrivateNetwork) {
+  scope: rg
+  name: 'storage-read-role-user'
+  params: {
+    principalId: formrecognizer.outputs.identityPrincipalId
+    roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+
 // Storage Blob Data Contributor
 module storageRoleUser 'core/security/role.bicep' = if (authType == 'rbac') {
   scope: rg
@@ -1049,59 +1102,3 @@ module searchRoleUser 'core/security/role.bicep' = if (authType == 'rbac') {
     principalType: 'User'
   }
 }
-
-
-// TODO: Streamline to one key=value pair
-output APPLICATIONINSIGHTS_CONNECTION_STRING string = monitoring.outputs.applicationInsightsConnectionString
-output APPINSIGHTS_CONNECTION_STRING string = monitoring.outputs.applicationInsightsConnectionString
-output APPINSIGHTS_INSTRUMENTATIONKEY string = monitoring.outputs.applicationInsightsInstrumentationKey
-
-output AZURE_BLOB_CONTAINER_NAME string = blobContainerName
-output AZURE_BLOB_ACCOUNT_NAME string = storageAccountName
-output AZURE_BLOB_ACCOUNT_KEY string = useKeyVault ? storekeys.outputs.STORAGE_ACCOUNT_KEY_NAME : ''
-output AZURE_CONTENT_SAFETY_ENDPOINT string = contentsafety.outputs.endpoint
-output AZURE_CONTENT_SAFETY_KEY string = useKeyVault ? storekeys.outputs.CONTENT_SAFETY_KEY_NAME : ''
-output AZURE_FORM_RECOGNIZER_ENDPOINT string = formrecognizer.outputs.endpoint
-output AZURE_FORM_RECOGNIZER_KEY string = useKeyVault ? storekeys.outputs.FORM_RECOGNIZER_KEY_NAME : ''
-output AZURE_KEY_VAULT_ENDPOINT string = useKeyVault ? keyvault.outputs.endpoint : ''
-output AZURE_KEY_VAULT_NAME string = useKeyVault || authType == 'rbac' ? keyvault.outputs.name : ''
-output AZURE_LOCATION string = location
-output AZURE_OPENAI_MODEL_NAME string = azureOpenAIModelName
-output AZURE_OPENAI_STREAM string = azureOpenAIStream
-output AZURE_OPENAI_SYSTEM_MESSAGE string = azureOpenAISystemMessage
-output AZURE_OPENAI_STOP_SEQUENCE string = azureOpenAIStopSequence
-output AZURE_OPENAI_MAX_TOKENS string = azureOpenAIMaxTokens
-output AZURE_OPENAI_TOP_P string = azureOpenAITopP
-output AZURE_OPENAI_TEMPERATURE string = azureOpenAITemperature
-output AZURE_OPENAI_API_VERSION string = azureOpenAIApiVersion
-output AZURE_OPENAI_RESOURCE string = azureOpenAIResourceName
-output AZURE_OPENAI_EMBEDDING_MODEL string = azureOpenAIEmbeddingModel
-output AZURE_OPENAI_MODEL string = azureOpenAIModel
-output AZURE_OPENAI_API_KEY string = useKeyVault ? storekeys.outputs.OPENAI_KEY_NAME : ''
-output AZURE_RESOURCE_GROUP string = rgName
-output AZURE_SEARCH_KEY string = useKeyVault ? storekeys.outputs.SEARCH_KEY_NAME : ''
-output AZURE_SEARCH_SERVICE string = search.outputs.endpoint
-output AZURE_SEARCH_USE_SEMANTIC_SEARCH string = azureSearchUseSemanticSearch
-output AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG string = azureSearchSemanticSearchConfig
-output AZURE_SEARCH_INDEX_IS_PRECHUNKED string = azureSearchIndexIsPrechunked
-output AZURE_SEARCH_TOP_K string = azureSearchTopK
-output AZURE_SEARCH_ENABLE_IN_DOMAIN string = azureSearchEnableInDomain
-output AZURE_SEARCH_CONTENT_COLUMNS string = azureSearchContentColumns
-output AZURE_SEARCH_FILENAME_COLUMN string = azureSearchFilenameColumn
-output AZURE_SEARCH_FILTER string = azureSearchFilter
-output AZURE_SEARCH_TITLE_COLUMN string = azureSearchTitleColumn
-output AZURE_SEARCH_URL_COLUMN string = azureSearchUrlColumn
-output AZURE_SEARCH_USE_INTEGRATED_VECTORIZATION bool = azureSearchUseIntegratedVectorization
-output AZURE_SEARCH_INDEX string = azureSearchIndex
-output AZURE_SPEECH_SERVICE_NAME string = speechServiceName
-output AZURE_SPEECH_SERVICE_REGION string = location
-output AZURE_SPEECH_SERVICE_KEY string = useKeyVault ? storekeys.outputs.SPEECH_KEY_NAME : ''
-output AZURE_TENANT_ID string = tenant().tenantId
-output DOCUMENT_PROCESSING_QUEUE_NAME string = queueName
-output ORCHESTRATION_STRATEGY string = orchestrationStrategy
-output USE_KEY_VAULT bool = useKeyVault
-output AZURE_APP_SERVICE_HOSTING_MODEL string = hostingModel
-output FRONTEND_WEBSITE_NAME string = hostingModel == 'code' ? web.outputs.FRONTEND_API_URI : web_docker.outputs.FRONTEND_API_URI
-output ADMIN_WEBSITE_NAME string = hostingModel == 'code' ? adminweb.outputs.WEBSITE_ADMIN_URI : adminweb_docker.outputs.WEBSITE_ADMIN_URI
-output SPEECH_RECOGNIZER_LANGUAGES string = recognizedLanguages
-output LOGLEVEL string = logLevel

@@ -27,6 +27,7 @@ param authType string
 param dockerFullImageName string = ''
 param useDocker bool = dockerFullImageName != ''
 param virutalNetworkSubnetId string = ''
+param allowPublicAccess bool = true
 
 module adminweb '../core/host/appservice.bicep' = {
   name: '${name}-app-module'
@@ -44,6 +45,7 @@ module adminweb '../core/host/appservice.bicep' = {
     applicationInsightsName: applicationInsightsName
     appServicePlanId: appServicePlanId
     virtualNetworkSubnetId: !empty(virutalNetworkSubnetId) ? virutalNetworkSubnetId : null
+    publicNetworkAccess: allowPublicAccess ? 'Enabled' : 'Disabled'
     appSettings: union(appSettings, {
         AZURE_AUTH_TYPE: authType
         USE_KEY_VAULT: useKeyVault ? useKeyVault : ''

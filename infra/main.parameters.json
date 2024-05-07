@@ -1,0 +1,33 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "environmentName": {
+            "value": "data2chat"
+        },
+        "location": {
+            "value": "switzerlandnorth"
+        },
+        "usePrivateNetwork": {
+            "value": true
+        },
+        "vnetRgName": {
+            "value": "chat2data-vnet-small"
+        },
+        "vnetName": {
+            "value": "chat2data-vnet-small"
+        },
+        "vnetPrivateEndpointSubnet": {
+            "value": "hub"
+        },
+        "vnetAppServiceSubnet": {
+            "value": "app"
+        },
+        "allowPublicAccessToFrontend": {
+            "value": true
+        },
+        "allowPublicAccessToAdmin": {
+            "value": true
+        }
+    }
+}

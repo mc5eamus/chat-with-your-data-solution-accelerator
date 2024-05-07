@@ -26,6 +26,8 @@ param speechKeyName string = ''
 param authType string
 param dockerFullImageName string = ''
 param virtualNetworkSubnetId string = ''
+param allowPublicAccess bool = true
+
 
 module function '../core/host/functions.bicep' = {
   name: '${name}-app-module'
@@ -41,6 +43,7 @@ module function '../core/host/functions.bicep' = {
     runtimeVersion: runtimeVersion
     dockerFullImageName: dockerFullImageName
     virtualNetworkSubnetId: !empty(virtualNetworkSubnetId) ? virtualNetworkSubnetId : null
+    publicNetworkAccess: allowPublicAccess ? 'Enabled' : 'Disabled'
     appSettings: union(appSettings, {
         WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false'
         AZURE_AUTH_TYPE: authType
@@ -144,3 +147,4 @@ module functionaccess '../core/security/keyvault-access.bicep' = if (useKeyVault
 
 output FUNCTION_IDENTITY_PRINCIPAL_ID string = function.outputs.identityPrincipalId
 output functionName string = function.outputs.name
+output id string = function.outputs.id
