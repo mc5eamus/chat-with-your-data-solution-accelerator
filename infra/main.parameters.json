@@ -3,31 +3,31 @@
     "contentVersion": "1.0.0.0",
     "parameters": {
         "environmentName": {
-            "value": "data2chat"
+            "value": "data2chat002"
         },
         "location": {
-            "value": "switzerlandnorth"
+            "value": "westeurope"
         },
         "usePrivateNetwork": {
             "value": true
         },
         "vnetRgName": {
-            "value": "chat2data-vnet-small"
+            "value": "ISWEACEDEV01-RG-01"
         },
         "vnetName": {
-            "value": "chat2data-vnet-small"
+            "value": "WE-ACE-DEV-Z1A-VNET33"
         },
         "vnetPrivateEndpointSubnet": {
-            "value": "hub"
+            "value": "private-endpoint-subnet"
         },
         "vnetAppServiceSubnet": {
-            "value": "app"
+            "value": "web-app-subnet"
         },
         "allowPublicAccessToFrontend": {
-            "value": true
+            "value": false
         },
         "allowPublicAccessToAdmin": {
-            "value": true
+            "value": false
         }
     }
 }

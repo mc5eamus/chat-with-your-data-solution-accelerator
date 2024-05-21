@@ -1,6 +1,6 @@
 import { Outlet, Link } from "react-router-dom";
 import styles from "./Layout.module.css";
-import Azure from "../../assets/Azure.svg";
+import Logo from "../../assets/Logo.svg";
 import { CopyRegular, ShareRegular } from "@fluentui/react-icons";
 import { Dialog, Stack, TextField } from "@fluentui/react";
 import { useEffect, useState } from "react";
@@ -37,7 +37,7 @@ const Layout = () => {
                 <div className={styles.headerContainer}>
                     <Stack horizontal verticalAlign="center">
                         <img
-                            src={Azure}
+                            src={Logo}
                             className={styles.headerIcon}
                             aria-hidden="true"
                         />
@@ -52,11 +52,11 @@ const Layout = () => {
                 </div>
             </header>
             <Outlet />
-            <Dialog 
+            <Dialog
                 onDismiss={handleSharePanelDismiss}
                 hidden={!isSharePanelOpen}
                 styles={{
-                    
+
                     main: [{
                         selectors: {
                           ['@media (min-width: 480px)']: {
@@ -77,11 +77,11 @@ const Layout = () => {
             >
                 <Stack horizontal verticalAlign="center" style={{gap: "8px"}}>
                     <TextField className={styles.urlTextBox} defaultValue={window.location.href} readOnly/>
-                    <div 
-                        className={styles.copyButtonContainer} 
-                        role="button" 
-                        tabIndex={0} 
-                        aria-label="Copy" 
+                    <div
+                        className={styles.copyButtonContainer}
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Copy"
                         onClick={handleCopyClick}
                         onKeyDown={e => e.key === "Enter" || e.key === " " ? handleCopyClick() : null}
                     >

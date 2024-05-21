@@ -66,24 +66,25 @@ resource functionNameDefaultClientKey 'Microsoft.Web/sites/host/functionKeys@201
   }
   dependsOn: [
     function
-    waitFunctionDeploymentSection
+    //waitFunctionDeploymentSection
   ]
 }
 
-resource waitFunctionDeploymentSection 'Microsoft.Resources/deploymentScripts@2020-10-01' = {
-  kind: 'AzurePowerShell'
-  name: 'WaitFunctionDeploymentSection'
-  location: location
-  properties: {
-    azPowerShellVersion: '3.0'
-    scriptContent: 'start-sleep -Seconds 300'
-    cleanupPreference: 'Always'
-    retentionInterval: 'PT1H'
-  }
-  dependsOn: [
-    function
-  ]
-}
+// resource waitFunctionDeploymentSection 'Microsoft.Resources/deploymentScripts@2020-10-01' = {
+//   kind: 'AzurePowerShell'
+//   name: 'WaitFunctionDeploymentSection'
+//   location: location
+//   properties: {
+//     azPowerShellVersion: '3.0'
+//     scriptContent: 'start-sleep -Seconds 300'
+//     cleanupPreference: 'Always'
+//     retentionInterval: 'PT1H'
+
+//   }
+//   dependsOn: [
+//     function
+//   ]
+// }
 
 // Cognitive Services User
 module openAIRoleFunction '../core/security/role.bicep' = if (authType == 'rbac') {

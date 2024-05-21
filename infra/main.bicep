@@ -254,20 +254,25 @@ param logLevel string = 'INFO'
 @description('List of comma-separated languages to recognize from the speech input. Supported languages are listed here: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=stt#supported-languages')
 param recognizedLanguages string = 'en-US,fr-FR,de-DE,it-IT'
 
+@description('Customize this to use a different (e.g. branded) frontend image.')
+param frontendImage string = 'fruoccopublic.azurecr.io/rag-webapp'
+
 @description('Set to true if you want to isolate the dependencies in a private network')
 param usePrivateNetwork bool = true
 @description('Existing resource group name for the virtual network')
-param vnetRgName string
+param vnetRgName string = ''
 @description('Existing virtual network name')
-param vnetName string
+param vnetName string = ''
 @description('Existing subnet name for the private endpoint')
-param vnetPrivateEndpointSubnet string
+param vnetPrivateEndpointSubnet string = ''
 @description('Existing subnet name for the app service. Has to be delegated to Microsoft.Web/serverFarms')
-param vnetAppServiceSubnet string
+param vnetAppServiceSubnet string = ''
 @description('Whether to allow public access to the frontend')
 param allowPublicAccessToFrontend bool = true
 @description('Whether to allow public access to the admin frontend')
 param allowPublicAccessToAdmin bool = true
+
+param dnsOverride string = ''
 
 var blobContainerName = 'documents'
 var queueName = 'doc-processing'
@@ -373,7 +378,7 @@ module openai 'core/ai/cognitiveservices.bicep' = {
   scope: rg
   params: {
     name: azureOpenAIResourceName
-    location: location
+    location: 'swedencentral'
     tags: tags
     sku: {
       name: azureOpenAISkuName
@@ -688,7 +693,7 @@ module web './app/web.bicep' = if (hostingModel == 'code') {
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     allowPublicAccess: allowPublicAccessToFrontend
-    appSettings: {
+    appSettings: union({
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
       AZURE_CONTENT_SAFETY_ENDPOINT: contentsafety.outputs.endpoint
@@ -722,7 +727,9 @@ module web './app/web.bicep' = if (hostingModel == 'code') {
       SPEECH_RECOGNIZER_LANGUAGES: recognizedLanguages
       ORCHESTRATION_STRATEGY: orchestrationStrategy
       LOGLEVEL: logLevel
-    }
+    }, empty(dnsOverride) ? {} : {
+      WEBSITE_DNS_SERVER: dnsOverride
+    })
   }
 }
 
@@ -734,7 +741,7 @@ module web_docker './app/web.bicep' = if (hostingModel == 'container') {
     name: '${websiteName}-docker'
     location: location
     tags: union(tags, { 'azd-service-name': 'web-docker' })
-    dockerFullImageName: 'fruoccopublic.azurecr.io/rag-webapp'
+    dockerFullImageName: frontendImage
     appServicePlanId: hostingplan.outputs.name
     applicationInsightsName: monitoring.outputs.applicationInsightsName
     healthCheckPath: '/api/health'
@@ -755,7 +762,7 @@ module web_docker './app/web.bicep' = if (hostingModel == 'container') {
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     allowPublicAccess: allowPublicAccessToFrontend
-    appSettings: {
+    appSettings: union({
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
       AZURE_CONTENT_SAFETY_ENDPOINT: contentsafety.outputs.endpoint
@@ -789,7 +796,9 @@ module web_docker './app/web.bicep' = if (hostingModel == 'container') {
       SPEECH_RECOGNIZER_LANGUAGES: recognizedLanguages
       ORCHESTRATION_STRATEGY: orchestrationStrategy
       LOGLEVEL: logLevel
-    }
+    }, empty(dnsOverride) ? {} : {
+      WEBSITE_DNS_SERVER: dnsOverride
+    })
   }
 }
 
@@ -821,7 +830,7 @@ module adminweb './app/adminweb.bicep' = if (hostingModel == 'code') {
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     allowPublicAccess: allowPublicAccessToAdmin
-    appSettings: {
+    appSettings: union({
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
       AZURE_CONTENT_SAFETY_ENDPOINT: contentsafety.outputs.endpoint
@@ -854,7 +863,9 @@ module adminweb './app/adminweb.bicep' = if (hostingModel == 'code') {
       FUNCTION_KEY: clientKey
       ORCHESTRATION_STRATEGY: orchestrationStrategy
       LOGLEVEL: logLevel
-    }
+    }, empty(dnsOverride) ? {} : {
+      WEBSITE_DNS_SERVER: dnsOverride
+    })
   }
 }
 
@@ -885,7 +896,7 @@ module adminweb_docker './app/adminweb.bicep' = if (hostingModel == 'container')
     authType: authType
     virutalNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     allowPublicAccess: allowPublicAccessToAdmin
-    appSettings: {
+    appSettings: union({
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
       AZURE_CONTENT_SAFETY_ENDPOINT: contentsafety.outputs.endpoint
@@ -918,7 +929,9 @@ module adminweb_docker './app/adminweb.bicep' = if (hostingModel == 'container')
       FUNCTION_KEY: clientKey
       ORCHESTRATION_STRATEGY: orchestrationStrategy
       LOGLEVEL: logLevel
-    }
+    }, empty(dnsOverride) ? {} : {
+      WEBSITE_DNS_SERVER: dnsOverride
+    })
   }
 }
 
@@ -951,7 +964,7 @@ module function './app/function.bicep' = if (hostingModel == 'code') {
     authType: authType
     virtualNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     allowPublicAccess: !usePrivateNetwork
-    appSettings: {
+    appSettings: union({
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
       AZURE_CONTENT_SAFETY_ENDPOINT: contentsafety.outputs.endpoint
@@ -965,7 +978,9 @@ module function './app/function.bicep' = if (hostingModel == 'code') {
       DOCUMENT_PROCESSING_QUEUE_NAME: queueName
       ORCHESTRATION_STRATEGY: orchestrationStrategy
       LOGLEVEL: logLevel
-    }
+    }, empty(dnsOverride) ? {} : {
+      WEBSITE_DNS_SERVER: dnsOverride
+    })
   }
 }
 
@@ -997,7 +1012,7 @@ module function_docker './app/function.bicep' = if (hostingModel == 'container')
     authType: authType
     virtualNetworkSubnetId: usePrivateNetwork ? appServiceSubnet.id : null
     allowPublicAccess: !usePrivateNetwork
-    appSettings: {
+    appSettings: union({
       AZURE_BLOB_ACCOUNT_NAME: storageAccountName
       AZURE_BLOB_CONTAINER_NAME: blobContainerName
       AZURE_CONTENT_SAFETY_ENDPOINT: contentsafety.outputs.endpoint
@@ -1011,7 +1026,9 @@ module function_docker './app/function.bicep' = if (hostingModel == 'container')
       DOCUMENT_PROCESSING_QUEUE_NAME: queueName
       ORCHESTRATION_STRATEGY: orchestrationStrategy
       LOGLEVEL: logLevel
-    }
+    }, empty(dnsOverride) ? {} : {
+      WEBSITE_DNS_SERVER: dnsOverride
+    })
   }
 }
 

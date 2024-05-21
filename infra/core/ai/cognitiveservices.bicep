@@ -16,7 +16,7 @@ param sku object = {
 
 param allowedIpRules array = []
 param networkAcls object = empty(allowedIpRules) ? {
-  defaultAction: 'Allow'
+  defaultAction: 'Deny'
 } : {
   ipRules: allowedIpRules
   defaultAction: 'Deny'
